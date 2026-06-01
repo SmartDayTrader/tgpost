@@ -4,9 +4,11 @@ import { parseChannel } from '@/lib/parser';
 const BASE_URL = 'https://www.tgpost.pro';
 
 // Channels to include in the sitemap.
-// TODO: once Supabase is in place, load this list from the database
-// instead of hardcoding it.
+// TODO: once Supabase is in place, load this list from the database.
 const CHANNELS = ['Smart-Day-Trader'];
+
+// Regenerate the sitemap at most once an hour.
+export const revalidate = 3600;
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const entries: MetadataRoute.Sitemap = [
@@ -18,16 +20,15 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   ];
 
   for (const username of CHANNELS) {
-    // Channel page itself
     entries.push({
       url: `${BASE_URL}/channel/${username}`,
       changeFrequency: 'daily',
       priority: 0.8,
     });
 
-    // All posts of the channel
     try {
       const channel = await parseChannel(username);
+      console.log(`[sitemap] ${username}: parsed ${channel.posts.length} posts`);
       for (const post of channel.posts) {
         entries.push({
           url: `${BASE_URL}/channel/${username}/post/${post.id}`,
@@ -35,8 +36,8 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
           priority: 0.6,
         });
       }
-    } catch {
-      // If a channel can't be parsed, skip its posts but keep the channel URL.
+    } catch (err) {
+      console.error(`[sitemap] failed to parse ${username}:`, err);
     }
   }
 
