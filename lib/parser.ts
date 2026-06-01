@@ -98,7 +98,24 @@ export async function parseChannel(username: string): Promise<Channel> {
       if (!images.includes(im[1])) images.push(im[1]);
     }
 
-    posts.push({ id, text, date, links, images });
+    // Filter out the channel avatar / user pictures.
+    // On t.me/s/ a real post photo sits inside an element whose class
+    // contains "message_photo" / "media_photo" / "grouped_media" / "video_thumb".
+    // Avatars use "user_photo" / "page_photo" / "userpic" / "tgme_header".
+    // We look at the HTML right before each image URL to decide.
+    const realImages = images.filter(src => {
+      const idx = block.indexOf(src);
+      if (idx === -1) return false;
+      const ctx = block.slice(Math.max(0, idx - 500), idx);
+      // hard reject: anything that looks like an avatar
+      if (/user_photo|page_photo|userpic|tgme_header|bot_photo/.test(ctx)) return false;
+      // accept: clearly a post media element
+      if (/message_photo|media_photo|grouped_media|video_thumb|message_video/.test(ctx)) return true;
+      // otherwise reject to be safe (covers the channel logo case)
+      return false;
+    });
+
+    posts.push({ id, text, date, links, images: realImages });
   }
 
   return { username, title, description, posts: posts.slice(-20) };
