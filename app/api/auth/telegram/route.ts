@@ -9,17 +9,21 @@ function verifyTelegramData(data: Record<string, string>, botToken: string): boo
   return hmac === hash;
 }
 
-async function isChannelAdmin(userId: number, channelUsername: string, botToken: string): Promise<boolean> {
+async function isChannelAdmin(userId: number, channelUsername: string, botToken: string): Promise<{ isAdmin: boolean; debug: unknown }> {
   try {
-    // Get list of all admins of the public channel
-    const res = await fetch(
-      `https://api.telegram.org/bot${botToken}/getChatAdministrators?chat_id=@${channelUsername}`
-    );
+    const url = `https://api.telegram.org/bot${botToken}/getChatAdministrators?chat_id=@${channelUsername}`;
+    const res = await fetch(url);
     const data = await res.json();
-    if (!data.ok) return false;
-    // Check if our user is in the admin list
-    return data.result.some((member: { user: { id: number } }) => member.user.id === userId);
-  } catch { return false; }
+    console.log('TG API response:', JSON.stringify(data).slice(0, 500));
+    console.log('Looking for userId:', userId, typeof userId);
+    if (!data.ok) return { isAdmin: false, debug: data };
+    const adminIds = data.result.map((m: { user: { id: number } }) => m.user.id);
+    console.log('Admin IDs:', adminIds);
+    const found = adminIds.includes(userId);
+    return { isAdmin: found, debug: { ok: true, adminIds } };
+  } catch (e) {
+    return { isAdmin: false, debug: String(e) };
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -32,8 +36,10 @@ export async function POST(req: NextRequest) {
   if (!verifyTelegramData(telegramData, botToken)) return NextResponse.json({ error: 'Invalid Telegram data' }, { status: 403 });
   if (Date.now() / 1000 - parseInt(telegramData.auth_date) > 86400) return NextResponse.json({ error: 'Auth expired' }, { status: 403 });
 
-  const isAdmin = await isChannelAdmin(parseInt(telegramData.id), channelUsername.replace('@', ''), botToken);
-  if (!isAdmin) return NextResponse.json({ error: 'You are not an admin of this channel' }, { status: 403 });
+  const userId = parseInt(telegramData.id);
+  const { isAdmin, debug } = await isChannelAdmin(userId, channelUsername.replace('@', ''), botToken);
+  
+  if (!isAdmin) return NextResponse.json({ error: 'You are not an admin of this channel', debug }, { status: 403 });
 
   return NextResponse.json({ success: true, channel: channelUsername.replace('@', '') });
 }
