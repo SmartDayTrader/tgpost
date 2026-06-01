@@ -1,4 +1,4 @@
-import { parseChannel, generateTitle, generateDescription, generateTags } from '@/lib/parser';
+import { parseChannel, generateTitle, generateDescription, generateTags, enrichWithLinkPreviews } from '@/lib/parser';
 import Link from 'next/link';
 import type { Metadata } from 'next';
 
@@ -30,6 +30,7 @@ export default async function PostPage({ params }: Props) {
 
   try {
     channel = await parseChannel(username);
+    channel = await enrichWithLinkPreviews(channel);
     post = channel.posts.find(p => p.id === id);
   } catch {
     return <div style={{ color: 'var(--text)', padding: '2rem' }}>Error loading post</div>;
@@ -84,11 +85,41 @@ export default async function PostPage({ params }: Props) {
           ))}
         </div>
 
-        {/* Links */}
-        {post.links.length > 0 && (
-          <div style={{ marginTop: '2rem', padding: '1.25rem', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }}>
-            <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--muted)', marginBottom: 10 }}>Links</div>
-            {post.links.map(link => (
+        {/* Post images */}
+        {post.images.length > 0 && (
+          <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            {post.images.map((img, i) => (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img key={i} src={img} alt="" style={{ width: '100%', borderRadius: 10, border: '1px solid var(--border)' }} />
+            ))}
+          </div>
+        )}
+
+        {/* Rich link previews */}
+        {post.linkPreviews && post.linkPreviews.length > 0 && (
+          <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
+            {post.linkPreviews.map(preview => (
+              <a key={preview.url} href={preview.url} target="_blank" rel="noopener noreferrer"
+                style={{ textDecoration: 'none', color: 'inherit', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', display: 'block', background: 'var(--surface)' }}>
+                {preview.image && (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img src={preview.image} alt="" style={{ width: '100%', maxHeight: 280, objectFit: 'cover', display: 'block' }} />
+                )}
+                <div style={{ padding: '0.85rem 1rem' }}>
+                  {preview.siteName && <div style={{ fontSize: '0.68rem', color: 'var(--accent2)', marginBottom: 4 }}>{preview.siteName}</div>}
+                  <div style={{ fontSize: '0.9rem', fontWeight: 600, marginBottom: 4, lineHeight: 1.3 }}>{preview.title}</div>
+                  {preview.description && <div style={{ fontSize: '0.78rem', color: 'var(--muted)', lineHeight: 1.5 }}>{preview.description}</div>}
+                </div>
+              </a>
+            ))}
+          </div>
+        )}
+
+        {/* Plain links without preview */}
+        {post.links.length > 0 && (!post.linkPreviews || post.linkPreviews.length < post.links.length) && (
+          <div style={{ marginTop: '1.5rem', padding: '1rem 1.25rem', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }}>
+            <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--muted)', marginBottom: 8 }}>Links</div>
+            {post.links.filter(l => !post.linkPreviews?.some(p => p.url === l)).map(link => (
               <a key={link} href={link} target="_blank" rel="noopener noreferrer"
                 style={{ display: 'block', fontSize: '0.82rem', color: 'var(--accent2)', textDecoration: 'none', padding: '4px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {link}

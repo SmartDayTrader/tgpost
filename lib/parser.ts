@@ -1,9 +1,18 @@
+export interface LinkPreview {
+  url: string;
+  title: string;
+  description: string;
+  image: string | null;
+  siteName: string | null;
+}
+
 export interface Post {
   id: string;
   text: string;
   date: string | null;
   links: string[];
   images: string[];
+  linkPreviews?: LinkPreview[];
 }
 
 export interface Channel {
@@ -37,7 +46,9 @@ export async function parseChannel(username: string): Promise<Channel> {
   const textRegex = /class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/;
   const dateRegex = /datetime="([^"]+)"/;
   const linkRegex = /href="(https?:\/\/[^"]+)"/g;
-  const imgRegex = /src="(https:\/\/cdn[^"]+\.(?:jpg|jpeg|png|webp))"/g;
+  // Telegram serves photos both as <img src> and as background-image:url('...')
+  const imgSrcRegex = /src="(https:\/\/cdn[^"]+\.(?:jpg|jpeg|png|webp)[^"]*)"/g;
+  const imgBgRegex = /background-image:\s*url\(['"]?(https:\/\/cdn[^'")]+)['"]?\)/g;
 
   const blocks = html.split('data-post=');
   for (let i = 1; i < blocks.length; i++) {
@@ -80,7 +91,10 @@ export async function parseChannel(username: string): Promise<Channel> {
 
     const images: string[] = [];
     let im;
-    while ((im = imgRegex.exec(block)) !== null) {
+    while ((im = imgSrcRegex.exec(block)) !== null) {
+      if (!images.includes(im[1])) images.push(im[1]);
+    }
+    while ((im = imgBgRegex.exec(block)) !== null) {
       if (!images.includes(im[1])) images.push(im[1]);
     }
 
@@ -88,6 +102,58 @@ export async function parseChannel(username: string): Promise<Channel> {
   }
 
   return { username, title, description, posts: posts.slice(-20) };
+}
+
+// Fetch Open Graph preview for a single URL (like Telegram does)
+export async function fetchLinkPreview(url: string): Promise<LinkPreview | null> {
+  try {
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; TGPostBot/1.0)' },
+      next: { revalidate: 86400 },
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+
+    const og = (prop: string) =>
+      html.match(new RegExp(`<meta[^>]+property="og:${prop}"[^>]+content="([^"]*)"`, 'i'))?.[1]
+      ?? html.match(new RegExp(`<meta[^>]+content="([^"]*)"[^>]+property="og:${prop}"`, 'i'))?.[1]
+      ?? null;
+
+    const title = og('title') ?? html.match(/<title[^>]*>([^<]*)<\/title>/i)?.[1] ?? url;
+    const description = og('description')
+      ?? html.match(/<meta[^>]+name="description"[^>]+content="([^"]*)"/i)?.[1] ?? '';
+    const image = og('image');
+    const siteName = og('site_name');
+
+    const decode = (s: string) => s
+      .replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&#x27;/g, "'");
+
+    return {
+      url,
+      title: decode(title).trim(),
+      description: decode(description).trim().slice(0, 200),
+      image,
+      siteName: siteName ? decode(siteName).trim() : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Enrich a channel's posts with link previews (run in parallel, capped)
+export async function enrichWithLinkPreviews(channel: Channel): Promise<Channel> {
+  const postsWithLinks = channel.posts.filter(p => p.links.length > 0);
+  await Promise.all(
+    postsWithLinks.map(async (post) => {
+      const previews = await Promise.all(
+        post.links.slice(0, 2).map(link => fetchLinkPreview(link))
+      );
+      post.linkPreviews = previews.filter((p): p is LinkPreview => p !== null);
+    })
+  );
+  return channel;
 }
 
 export function generateTitle(text: string): string {

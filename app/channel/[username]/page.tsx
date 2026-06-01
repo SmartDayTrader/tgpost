@@ -1,4 +1,4 @@
-import { parseChannel, generateTitle, generateTags } from '@/lib/parser';
+import { parseChannel, generateTitle, generateTags, enrichWithLinkPreviews } from '@/lib/parser';
 import Link from 'next/link';
 
 export default async function ChannelPage({ params }: { params: Promise<{ username: string }> }) {
@@ -6,6 +6,7 @@ export default async function ChannelPage({ params }: { params: Promise<{ userna
   let channel;
   try {
     channel = await parseChannel(username);
+    channel = await enrichWithLinkPreviews(channel);
   } catch {
     return (
       <main style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
@@ -62,6 +63,23 @@ export default async function ChannelPage({ params }: { params: Promise<{ userna
                   <div style={{ fontSize: '0.8rem', color: 'var(--muted)', lineHeight: 1.65, display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                     {post.text}
                   </div>
+                  {post.images.length > 0 && (
+                    /* eslint-disable-next-line @next/next/no-img-element */
+                    <img src={post.images[0]} alt="" style={{ width: '100%', maxHeight: 240, objectFit: 'cover', borderRadius: 8, marginTop: 10 }} />
+                  )}
+                  {post.linkPreviews && post.linkPreviews.length > 0 && post.images.length === 0 && (
+                    <div style={{ marginTop: 10, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', display: 'flex', background: 'var(--surface)' }}>
+                      {post.linkPreviews[0].image && (
+                        /* eslint-disable-next-line @next/next/no-img-element */
+                        <img src={post.linkPreviews[0].image} alt="" style={{ width: 88, height: 88, objectFit: 'cover', flexShrink: 0 }} />
+                      )}
+                      <div style={{ padding: '0.6rem 0.85rem', overflow: 'hidden' }}>
+                        {post.linkPreviews[0].siteName && <div style={{ fontSize: '0.62rem', color: 'var(--accent2)', marginBottom: 2 }}>{post.linkPreviews[0].siteName}</div>}
+                        <div style={{ fontSize: '0.78rem', fontWeight: 600, marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{post.linkPreviews[0].title}</div>
+                        <div style={{ fontSize: '0.7rem', color: 'var(--muted)', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{post.linkPreviews[0].description}</div>
+                      </div>
+                    </div>
+                  )}
                   {post.date && <div style={{ fontSize: '0.7rem', color: 'var(--muted)', marginTop: 8 }}>{post.date}</div>}
                 </Link>
               );
