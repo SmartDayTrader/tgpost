@@ -7,8 +7,10 @@ const BASE_URL = 'https://www.tgpost.pro';
 // TODO: once Supabase is in place, load this list from the database.
 const CHANNELS = ['Smart-Day-Trader'];
 
-// Regenerate the sitemap at most once an hour.
-export const revalidate = 3600;
+// Always render on the server (do NOT bake a static result at build time,
+// where parsing t.me fails). This makes the sitemap reflect live posts.
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const entries: MetadataRoute.Sitemap = [
