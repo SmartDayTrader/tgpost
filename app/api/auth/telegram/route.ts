@@ -11,10 +11,14 @@ function verifyTelegramData(data: Record<string, string>, botToken: string): boo
 
 async function isChannelAdmin(userId: number, channelUsername: string, botToken: string): Promise<boolean> {
   try {
-    const res = await fetch(`https://api.telegram.org/bot${botToken}/getChatMember?chat_id=@${channelUsername}&user_id=${userId}`);
+    // Get list of all admins of the public channel
+    const res = await fetch(
+      `https://api.telegram.org/bot${botToken}/getChatAdministrators?chat_id=@${channelUsername}`
+    );
     const data = await res.json();
     if (!data.ok) return false;
-    return ['creator', 'administrator'].includes(data.result?.status);
+    // Check if our user is in the admin list
+    return data.result.some((member: { user: { id: number } }) => member.user.id === userId);
   } catch { return false; }
 }
 
