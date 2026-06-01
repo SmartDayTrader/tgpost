@@ -22,23 +22,47 @@ export interface Channel {
   posts: Post[];
 }
 
-export async function parseChannel(username: string): Promise<Channel> {
-  const url = `https://t.me/s/${username}`;
-  const res = await fetch(url, {
-    headers: {
-      // Use a realistic browser UA. Telegram sometimes serves a stripped-down
-      // page to non-browser user agents, which made the parser see no posts.
-      'User-Agent':
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-      'Accept-Language': 'en-US,en;q=0.9',
-      Accept:
-        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-    },
+const BROWSER_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Accept-Language': 'en-US,en;q=0.9',
+  Accept:
+    'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+};
+
+// Fetch the t.me/s/ page. Telegram serves a stripped (post-less) page to
+// datacenter IPs (Vercel), so if the direct request comes back without posts
+// we retry through a public proxy that fetches with a residential IP and
+// returns the RAW html unchanged (allorigins "raw" endpoint).
+async function fetchChannelHtml(username: string): Promise<string> {
+  const direct = `https://t.me/s/${username}`;
+
+  // 1) Try direct first (cheapest, works when not blocked).
+  try {
+    const res = await fetch(direct, {
+      headers: BROWSER_HEADERS,
+      next: { revalidate: 300 },
+    });
+    if (res.ok) {
+      const html = await res.text();
+      if (html.includes('data-post=')) return html;
+    }
+  } catch {
+    // ignore, fall through to proxy
+  }
+
+  // 2) Fall back to a proxy that returns the raw html.
+  const proxied = `https://api.allorigins.win/raw?url=${encodeURIComponent(direct)}`;
+  const res = await fetch(proxied, {
+    headers: BROWSER_HEADERS,
     next: { revalidate: 300 },
   });
+  if (!res.ok) throw new Error(`Failed to fetch channel via proxy: ${res.status}`);
+  return res.text();
+}
 
-  if (!res.ok) throw new Error(`Failed to fetch channel: ${res.status}`);
-  const html = await res.text();
+export async function parseChannel(username: string): Promise<Channel> {
+  const html = await fetchChannelHtml(username);
 
   // Decide "channel exists" by whether the page actually contains posts,
   // not by a single marker class (which Telegram may omit depending on UA).
