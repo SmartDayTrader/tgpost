@@ -26,7 +26,13 @@ export async function parseChannel(username: string): Promise<Channel> {
   const url = `https://t.me/s/${username}`;
   const res = await fetch(url, {
     headers: {
-      'User-Agent': 'Mozilla/5.0 (compatible; TGPostBot/1.0)',
+      // Use a realistic browser UA. Telegram sometimes serves a stripped-down
+      // page to non-browser user agents, which made the parser see no posts.
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+      'Accept-Language': 'en-US,en;q=0.9',
+      Accept:
+        'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
     },
     next: { revalidate: 300 },
   });
@@ -34,7 +40,11 @@ export async function parseChannel(username: string): Promise<Channel> {
   if (!res.ok) throw new Error(`Failed to fetch channel: ${res.status}`);
   const html = await res.text();
 
-  if (!html.includes('tgme_channel_info')) {
+  // Decide "channel exists" by whether the page actually contains posts,
+  // not by a single marker class (which Telegram may omit depending on UA).
+  const hasPosts = html.includes('data-post=');
+  const hasChannelInfo = html.includes('tgme_channel_info');
+  if (!hasPosts && !hasChannelInfo) {
     throw new Error('Channel not found or private');
   }
 
