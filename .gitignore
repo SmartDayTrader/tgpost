@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local dev scripts
+diag-fetch.mjs
+import-history.mjs
+tme-debug.html

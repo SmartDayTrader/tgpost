@@ -1,104 +1,97 @@
-import { parseChannel, generateTitle, generateDescription, generateTags, enrichWithLinkPreviews } from '@/lib/parser';
+import { getChannel, getPost, type DbPost } from '@/lib/supabase';
 import Link from 'next/link';
 import type { Metadata } from 'next';
+import { notFound } from 'next/navigation';
+
+export const revalidate = 60;
 
 type Props = { params: Promise<{ username: string; id: string }> };
 
+function postTitle(p: DbPost): string {
+  if (p.ai_title) return p.ai_title;
+  const clean = (p.raw_text || '').replace(/[\u{1F300}-\u{1FFFF}]/gu, '').trim();
+  const first = clean.split(/[.\n!?]/)[0].trim();
+  if (first.length >= 10 && first.length <= 80) return first;
+  return clean.substring(0, 70).trim() + (clean.length > 70 ? '…' : '');
+}
+function postDescription(p: DbPost): string {
+  if (p.ai_description) return p.ai_description;
+  const clean = (p.raw_text || '').replace(/[\u{1F300}-\u{1FFFF}]/gu, '').replace(/https?:\/\/\S+/g, '').trim();
+  return clean.substring(0, 155).trim() + (clean.length > 155 ? '…' : '');
+}
+
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { username, id } = await params;
-  try {
-    const channel = await parseChannel(username);
-    const post = channel.posts.find(p => p.id === id);
-    if (!post) return { title: 'Post not found' };
-    return {
-      title: `${generateTitle(post.text)} — ${channel.title}`,
-      description: generateDescription(post.text),
-      openGraph: {
-        title: generateTitle(post.text),
-        description: generateDescription(post.text),
-        type: 'article',
-      },
-    };
-  } catch {
-    return { title: 'Post not found' };
-  }
+  const channel = await getChannel(username);
+  if (!channel) return { title: 'Post not found' };
+  const post = await getPost(channel.id, id);
+  if (!post) return { title: 'Post not found' };
+  return {
+    title: `${postTitle(post)} — ${channel.title || channel.username}`,
+    description: postDescription(post),
+    openGraph: { title: postTitle(post), description: postDescription(post), type: 'article' },
+  };
 }
 
 export default async function PostPage({ params }: Props) {
   const { username, id } = await params;
-  let channel, post;
+  const channel = await getChannel(username);
+  if (!channel) notFound();
+  const post = await getPost(channel.id, id);
+  if (!post) notFound();
 
-  try {
-    channel = await parseChannel(username);
-    channel = await enrichWithLinkPreviews(channel);
-    post = channel.posts.find(p => p.id === id);
-  } catch {
-    return <div style={{ color: 'var(--text)', padding: '2rem' }}>Error loading post</div>;
-  }
-
-  if (!post) {
-    return (
-      <main style={{ minHeight: '100vh', background: 'var(--bg)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ textAlign: 'center' }}>
-          <h1 style={{ marginBottom: '1rem' }}>Post not found</h1>
-          <Link href={`/channel/${username}`} style={{ color: 'var(--accent)', textDecoration: 'none' }}>← Back to channel</Link>
-        </div>
-      </main>
-    );
-  }
-
-  const title = generateTitle(post.text);
-  const tags = generateTags(post);
-  const paragraphs = post.text.split('\n').filter(p => p.trim());
+  const title = postTitle(post);
+  const tags = Array.isArray(post.ai_tags) ? post.ai_tags : [];
+  const bodyText = post.ai_enriched_text || post.raw_text || '';
+  const paragraphs = bodyText.split('\n').filter(p => p.trim());
+  const imgs = Array.isArray(post.images) ? post.images : [];
+  const lp = Array.isArray(post.link_previews) ? post.link_previews : [];
+  const links = Array.isArray(post.links) ? post.links : [];
+  const dateStr = post.date ? new Date(post.date).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : null;
 
   return (
     <main style={{ minHeight: '100vh', background: 'var(--bg)' }}>
       <div style={{ borderBottom: '1px solid var(--border)', padding: '1rem 2.5rem' }}>
-        <Link href={`/channel/${username}`} style={{ fontSize: '0.82rem', color: 'var(--muted)', textDecoration: 'none' }}>
-          ← {channel!.title}
+        <Link href={`/channel/${channel.username}`} style={{ fontSize: '0.82rem', color: 'var(--muted)', textDecoration: 'none' }}>
+          ← {channel.title || channel.username}
         </Link>
       </div>
 
       <article style={{ maxWidth: 680, margin: '0 auto', padding: '3rem 2rem' }}>
-        {/* Tags */}
         <div style={{ display: 'flex', gap: 6, marginBottom: '1.25rem', flexWrap: 'wrap' }}>
           {tags.map(t => (
             <span key={t} style={{ fontSize: '0.72rem', background: 'rgba(0,229,192,0.08)', color: 'var(--accent2)', border: '1px solid rgba(0,229,192,0.2)', borderRadius: 4, padding: '3px 10px' }}>{t}</span>
           ))}
         </div>
 
-        {/* Title */}
         <h1 style={{ fontSize: 'clamp(1.4rem,3vw,2rem)', fontWeight: 800, lineHeight: 1.25, marginBottom: '1.5rem', letterSpacing: '-0.02em' }}>
           {title}
         </h1>
 
-        {post.date && (
+        {dateStr && (
           <div style={{ fontSize: '0.78rem', color: 'var(--muted)', marginBottom: '2rem', paddingBottom: '1.5rem', borderBottom: '1px solid var(--border)' }}>
-            {post.date} · <a href={`https://t.me/${username}/${id}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent2)', textDecoration: 'none' }}>View in Telegram ↗</a>
+            {dateStr} · <a href={`https://t.me/${channel.username}/${id}`} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent2)', textDecoration: 'none' }}>View in Telegram ↗</a>
           </div>
         )}
 
-        {/* Body */}
         <div style={{ fontSize: '1rem', lineHeight: 1.8, color: '#c8cad4' }}>
           {paragraphs.map((p, i) => (
             <p key={i} style={{ marginBottom: '1rem' }}>{p}</p>
           ))}
         </div>
 
-        {/* Post images */}
-        {post.images.length > 0 && (
+        {imgs.length > 0 && (
           <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {post.images.map((img, i) => (
+            {imgs.map((img, i) => (
               /* eslint-disable-next-line @next/next/no-img-element */
               <img key={i} src={img} alt="" style={{ width: '100%', borderRadius: 10, border: '1px solid var(--border)' }} />
             ))}
           </div>
         )}
 
-        {/* Rich link previews */}
-        {post.linkPreviews && post.linkPreviews.length > 0 && (
+        {lp.length > 0 && (
           <div style={{ marginTop: '1.5rem', display: 'flex', flexDirection: 'column', gap: '0.75rem' }}>
-            {post.linkPreviews.map(preview => (
+            {lp.map(preview => (
               <a key={preview.url} href={preview.url} target="_blank" rel="noopener noreferrer"
                 style={{ textDecoration: 'none', color: 'inherit', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', display: 'block', background: 'var(--surface)' }}>
                 {preview.image && (
@@ -115,11 +108,10 @@ export default async function PostPage({ params }: Props) {
           </div>
         )}
 
-        {/* Plain links without preview */}
-        {post.links.length > 0 && (!post.linkPreviews || post.linkPreviews.length < post.links.length) && (
+        {links.length > 0 && (
           <div style={{ marginTop: '1.5rem', padding: '1rem 1.25rem', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8 }}>
             <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--muted)', marginBottom: 8 }}>Links</div>
-            {post.links.filter(l => !post.linkPreviews?.some(p => p.url === l)).map(link => (
+            {links.filter(l => !lp.some(p => p.url === l)).map(link => (
               <a key={link} href={link} target="_blank" rel="noopener noreferrer"
                 style={{ display: 'block', fontSize: '0.82rem', color: 'var(--accent2)', textDecoration: 'none', padding: '4px 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {link}
@@ -128,16 +120,8 @@ export default async function PostPage({ params }: Props) {
           </div>
         )}
 
-        {/* SEO footer */}
-        <div style={{ marginTop: '3rem', padding: '1.25rem', background: 'rgba(91,95,255,0.05)', border: '1px solid rgba(91,95,255,0.15)', borderRadius: 8 }}>
-          <div style={{ fontSize: '0.72rem', color: 'var(--muted)', marginBottom: 6 }}>Meta description (SEO)</div>
-          <div style={{ fontSize: '0.82rem', color: 'var(--text)', lineHeight: 1.6, fontStyle: 'italic' }}>
-            {generateDescription(post.text)}
-          </div>
-        </div>
-
         <div style={{ marginTop: '2rem', textAlign: 'center', paddingTop: '2rem', borderTop: '1px solid var(--border)' }}>
-          <a href={`https://t.me/${username}`} target="_blank" rel="noopener noreferrer"
+          <a href={`https://t.me/${channel.username}`} target="_blank" rel="noopener noreferrer"
             style={{ display: 'inline-block', background: 'var(--accent)', color: '#fff', textDecoration: 'none', padding: '0.75rem 1.5rem', borderRadius: 8, fontSize: '0.9rem', fontWeight: 600 }}>
             Subscribe on Telegram ↗
           </a>
