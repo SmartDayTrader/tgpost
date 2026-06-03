@@ -44,3 +44,5 @@ next-env.d.ts
 diag-fetch.mjs
 import-history.mjs
 tme-debug.html
+enrich-posts.mjs
+list-models.mjs
